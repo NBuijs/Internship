@@ -1,0 +1,399 @@
+# Import packages that are needed to run this code.
+
+import rasterio
+from rasterio.mask import mask
+import matplotlib.pylab as plt
+import numpy as np
+import fiona
+from osgeo import gdal
+
+# Open polygon of Sabah and call this polygon 'sabah_clip'.
+
+with fiona.open(r'C:\...\sabah.geojson') as src: #... is path
+    sabah_clip = list(src)[0]
+    
+# Reproject raster to reference dataset.
+
+base = r'C:\...\Reference_dataset.tif' #... is path
+path_to_input = r'C:\...\AGBD_dataset.tif' #... is path
+path_to_output = r'C:\...\AGBD_datset_output.tif' #... is path
+
+def warp(base, path_to_input, path_to_output):
+    with rasterio.open(base) as src:
+        transform = src.transform
+        bounds = src.bounds
+    
+    warp_options = {
+        'xRes': transform[0],
+        'yRes': transform[4],
+        'outputBounds': [bounds.left, bounds.bottom, bounds.right, bounds.top],
+        'dstSRS': 'EPSG:4326',
+        'outputType': gdal.GDT_Float32,
+    }
+    
+    gdal.Warp(path_to_output, path_to_input, **warp_options)
+    
+warp(base, path_to_input, path_to_output)
+
+# Open all the datasets that you want to investigate. 
+# Then, clip all datasets to Sabah and transform them to make sure that the pixels overlay each other. 
+# Add the latitude and longitude as you want to have these within your visualization. 
+
+with rasterio.open(r'C:\...\Dubayah.tif') as src: #... is path
+    dubayah, transform1 = mask(src, [sabah_clip['geometry']], crop=True)
+    cell_size1 = transform1[0]
+    left1 = transform1[2]
+    top1 = transform1[5]
+    right1 = left1 + dubayah.shape[2] * cell_size1
+    bottom1 = top1 + dubayah.shape[1] * -cell_size1
+    extent1 = (left1, right1, bottom1, top1)
+    
+with rasterio.open(r'C:\...\Spawn.tif') as src: #... is path
+    spawn, _ = mask(src, [sabah_clip['geometry']], crop=True)
+    
+with rasterio.open(r'C:\...\Asner.tif') as src: #... is path
+    asner, _ = mask(src, [sabah_clip['geometry']], crop=True)
+    
+with rasterio.open(r'C:\...\Santoro_2010.tif') as src: #... is path
+    santoro_2010, _ = mask(src, [sabah_clip['geometry']], crop=True)
+    
+with rasterio.open(r'C:\...\Santoro_2017.tif') as src: #... is path
+    santoro_2017, _ = mask(src, [sabah_clip['geometry']], crop=True)
+    
+with rasterio.open(r'C:\...\Santoro_2018.tif') as src: #... is path
+    santoro_2018, _ = mask(src, [sabah_clip['geometry']], crop=True)
+    
+with rasterio.open(r'C:\...\Baccini.tif') as src: #... is path
+    baccini, _ = mask(src, [sabah_clip['geometry']], crop=True)
+
+with rasterio.open(r'C:\...\Satelligence.tif') as src: #... is path
+    satelligence_2021, _ = mask(src, [sabah_clip['geometry']], crop=True)
+
+# Identify the nodata values (these were found when opening the datasets in QGIS).
+
+dubayah = dubayah.astype(np.float32)
+NODATA = -9999
+dubayah[dubayah == NODATA] = np.NaN
+
+spawn = spawn.astype(np.float32)
+NODATA = 65535
+spawn[spawn == NODATA] = np.NaN
+
+asner = asner.astype(np.float32)
+NODATA = -9999
+asner[asner == NODATA] = np.NaN
+
+satelligence_2021 = satelligence_2021.astype(np.float32)
+NODATA = -9999
+satelligence_2021[satelligence_2021 == NODATA] = np.NaN
+
+# Multiply Spawn's dataset with 0.1 due to the conversion factor (stated in its user guide).
+# Convert Spawn & Asner's dataset from aboveground biomass carbon density to aboveground biomass.
+
+spawn = spawn*0.1*2
+asner = asner*2
+
+# Plot the datasets.
+
+fig, axes = plt.subplots(ncols=3,nrows=3, figsize=(30,20)) #Also set the figure size.
+clim = [0, 500] #Identifiy range limit of colorbar to make it easier to compare all datasets.
+fig.suptitle('Aboveground biomass in Sabah according to different datasets') #Set title for all graphs.
+
+plt.subplot(3, 3, 1)
+graph1 = plt.imshow(dubayah[0,:,:], extent=extent1)
+cb1 = plt.colorbar(graph1, shrink=0.9) #Shrink colorbar otherwise it does not match the size of the graph.
+cb1.set_label('Aboveground biomass [Mg/ha]', labelpad=15) #Set label for colorbar.
+plt.clim(clim) #Set limits of colorbar.
+plt.xlabel('Latitude') #Set x-axis title.
+plt.ylabel('Longitude') #Set y-axis title.
+plt.title('Dubayah et al. (2022): 2019-2021') #Set plot title.
+
+plt.subplot(3, 3, 2)
+graph2 = plt.imshow(spawn[0,:,:], extent=extent1)
+cb2 = plt.colorbar(graph2, shrink=0.9)
+cb2.set_label('Aboveground biomass [Mg/ha]', labelpad=15)
+plt.clim(clim)
+plt.xlabel('Latitude')
+plt.ylabel('Longitude')
+plt.title('Spawn & Gibbs (2020): 2010')
+
+plt.subplot(3, 3, 3)
+graph3 = plt.imshow(asner[0,:,:], extent=extent1)
+cb3 = plt.colorbar(graph3, shrink=0.9)
+cb3.set_label('Aboveground biomass [Mg/ha]', labelpad=15)
+plt.clim(clim)
+plt.xlabel('Latitude')
+plt.ylabel('Longitude')
+plt.title('Asner et al. (2018; 2021): 2016')
+
+plt.subplot(3, 3, 4)
+graph4 = plt.imshow(santoro_2010[0,:,:], extent=extent1)
+cb4 = plt.colorbar(graph4, shrink=0.9)
+cb4.set_label('Aboveground biomass [Mg/ha]', labelpad=15)
+plt.clim(clim)
+plt.xlabel('Latitude')
+plt.ylabel('Longitude')
+plt.title('Santoro & Cartus (2021): 2010')
+
+plt.subplot(3, 3, 5)
+graph5 = plt.imshow(santoro_2017[0,:,:], extent=extent1)
+cb5 = plt.colorbar(graph5, shrink=0.9)
+cb5.set_label('Aboveground biomass [Mg/ha]', labelpad=15)
+plt.clim(clim)
+plt.xlabel('Latitude')
+plt.ylabel('Longitude')
+plt.title('Santoro & Cartus (2021): 2017')
+
+plt.subplot(3, 3, 6)
+graph6 = plt.imshow(santoro_2018[0,:,:], extent=extent1)
+cb6 = plt.colorbar(graph6, shrink=0.9)
+cb6.set_label('Aboveground biomass [Mg/ha]', labelpad=15)
+plt.clim(clim)
+plt.xlabel('Latitude')
+plt.ylabel('Longitude')
+plt.title('Santoro & Cartus (2021): 2018')
+
+plt.subplot(3, 3, 7)
+graph7 = plt.imshow(baccini[0,:,:], extent=extent1)
+cb7 = plt.colorbar(graph7, shrink=0.9)
+cb7.set_label('Aboveground biomass [Mg/ha]', labelpad=15)
+plt.clim(clim)
+plt.xlabel('Latitude')
+plt.ylabel('Longitude')
+plt.title('Baccini et al. (2012): 2000-2010')
+
+plt.subplot(3, 3, 8)
+graph8 = plt.imshow(satelligence_2021[0,:,:], extent=extent1)
+cb8 = plt.colorbar(graph8, shrink=0.9)
+cb8.set_label('Aboveground biomass [Mg/ha]', labelpad=15)
+plt.clim(clim)
+plt.xlabel('Latitude')
+plt.ylabel('Longitude')
+plt.title('Satelligence (2021): 2021')
+
+fig.delaxes(axes[2][2]) #make sure that the "empty" graph (bottom right) is not illustrated.
+
+plt.show() #show graph.
+
+# Open Sabah landcover (2019), state that 0 is no data. Afterwards plot the graph.
+
+with rasterio.open(r'C:\...\sabah_landcover.tif') as src: #... is path
+    lulc = src.read(1).astype(np.float32)
+    lulc[lulc == 0] = np.NaN #value 0 is not a number.
+
+lulc_graph = plt.imshow(lulc, interpolation='nearest', extent=extent1)
+cb9 = plt.colorbar(lulc_graph, shrink=0.9)
+cb9.set_label('Landcover class', labelpad=15)
+plt.xlabel('Latitude')
+plt.ylabel('Longitude')
+plt.title('Land cover in Sabah in 2019 (Satelligence, 2021)')
+box_style=dict(boxstyle='round', facecolor='white', alpha=0.5) #create a textbox that states the names of the land cover codes.
+plt.text(1, 0.35, '1: Primary Forest \n2: Degraded Forest \n3: Regrowth Forest \n20: TMF Main Degraded Tropical Moist Forest \n30: TMF Tropical Moist Forest Regrowth \n50: Oil Palm \n60: TMF Water & Deforested converted to Water merged \n70: Forest to Other, Deforestation Ongoing & Other merged', fontsize=11, transform=plt.gcf().transFigure, bbox=box_style)
+
+# Redefine the land cover codes to factors.
+
+PRIMARY_FOREST = 1
+LOGGED_FOREST = 2
+DEGRADED_AND_REGROWTH = 3
+DEGRADED_TROPICAL_MOIST_FOREST = 20
+REGROWTH_TROPICAL_MOIST_FOREST = 30
+FOREST_TO_PLANTATION = 41
+OILPALM = 50
+WATER = 60
+DEFORESTATION_AND_OTHER = 70
+
+# Rename factors to to their locations.
+
+primary_forest = np.isin(lulc, PRIMARY_FOREST)
+logged_forest = np.isin(lulc, LOGGED_FOREST)
+degraded_and_regrowth = np.isin(lulc, DEGRADED_AND_REGROWTH)
+degraded_tropical_moist_forest = np.isin(lulc, DEGRADED_TROPICAL_MOIST_FOREST)
+regrowth_tropical_moist_forest = np.isin(lulc, REGROWTH_TROPICAL_MOIST_FOREST)
+forest_to_plantation = np.isin(lulc, FOREST_TO_PLANTATION)
+oilpalm = np.isin(lulc, OILPALM)
+water = np.isin(lulc, WATER)
+deforestation_and_other = np.isin(lulc, DEFORESTATION_AND_OTHER)
+
+# Create (sub)plots of land cover classes.
+
+fig, axes = plt.subplots(ncols=3,nrows=3, figsize=(20,10)) #Also set the figure size.
+fig.suptitle('Land cover in Sabah according to Satelligence (2021)') #Set title for all graphs.
+
+plt.subplot(3, 3, 1)
+graph1 = plt.imshow(primary_forest, interpolation='nearest', extent=extent1) #Show primary forest, interpolate with the nearest values, and the extent is what was set in the beginning of the code.
+plt.xlabel('Latitude') #Set x-axis label.
+plt.ylabel('Longitude') #Set y-axis label.
+plt.title('Primary Forest [1]') #Set plot title.
+plt.colorbar() #Set colorbar.
+
+plt.subplot(3, 3, 2)
+graph1 = plt.imshow(logged_forest, interpolation='nearest', extent=extent1)
+plt.xlabel('Latitude')
+plt.ylabel('Longitude')
+plt.title('Disturbed Forest [2]')
+plt.colorbar()
+
+plt.subplot(3, 3, 3)
+graph1 = plt.imshow(degraded_and_regrowth, interpolation='nearest', extent=extent1)
+plt.xlabel('Latitude')
+plt.ylabel('Longitude')
+plt.title('Regrowth Forest [3]')
+plt.colorbar()
+
+plt.subplot(3, 3, 4)
+graph1 = plt.imshow(degraded_tropical_moist_forest, interpolation='nearest', extent=extent1)
+plt.xlabel('Latitude')
+plt.ylabel('Longitude')
+plt.title('Degraded Tropical Moist Forest [20]')
+plt.colorbar()
+
+plt.subplot(3, 3, 5)
+graph1 = plt.imshow(regrowth_tropical_moist_forest, interpolation='nearest', extent=extent1)
+plt.xlabel('Latitude')
+plt.ylabel('Longitude')
+plt.title('Tropical Moist Forest Regrowth [30]')
+plt.colorbar()
+
+plt.subplot(3, 3, 6)
+graph1 = plt.imshow(forest_to_plantation, interpolation='nearest', extent=extent1)
+plt.xlabel('Latitude')
+plt.ylabel('Longitude')
+plt.title('Forest converted to Plantation [41]')
+plt.colorbar()
+
+plt.subplot(3, 3, 7)
+graph1 = plt.imshow(oilpalm, interpolation='nearest', extent=extent1)
+plt.xlabel('Latitude')
+plt.ylabel('Longitude')
+plt.title('Oil palm [50]')
+plt.colorbar()
+
+plt.subplot(3, 3, 8)
+graph1 = plt.imshow(water, interpolation='nearest', extent=extent1)
+plt.xlabel('Latitude')
+plt.ylabel('Longitude')
+plt.title('Water [60]')
+plt.colorbar()
+
+plt.subplot(3, 3, 9)
+graph1 = plt.imshow(deforestation_and_other, interpolation='nearest', extent=extent1)
+plt.xlabel('Latitude')
+plt.ylabel('Longitude')
+plt.title('Deforestation and other [70]')
+plt.colorbar()
+
+plt.tight_layout() #Make sure that the graphs are close together.
+plt.show() #Show graph.
+
+# Define the locations which do not contain values, and are thus false.
+valid1 = np.isnan(dubayah) == False
+valid2 = np.isnan(spawn) == False
+valid3 = np.isnan(asner) == False
+valid4 = np.isnan(santoro_2010) == False
+valid5 = np.isnan(santoro_2017) == False
+valid6 = np.isnan(santoro_2018) == False
+valid7 = np.isnan(baccini) == False
+valid8 = np.isnan(satelligence_2021) == False
+
+# Create graphs which illustrate the frrequency/distribution of aboveground biomass values for the land cover classes 'Primary Forest', 'Disturbed Forest', 'Regrowth Forest' and 'Oil Palm'.
+
+#Define x-axis & y-axis limit so that it will be easier to compare the graphs.
+custom_xlim = (0, 800)
+custom_ylim = (0, 0.038)
+
+#Plot graph.
+fig, axes = plt.subplots(ncols=3,nrows=3, figsize=(30,20)) #Set figure size.
+fig.suptitle('Aboveground biomass density per land cover class in Sabah according to different datasets') #Set title for all graphs.
+
+
+ax = axes[0][0] #Graph row 1, column 1.
+_ = ax.hist(dubayah[primary_forest * valid1], bins=100, color='green', alpha=0.5, label='Primary forest', density=True) #Create a histogram of primary forest with 100 bins, set the color to green, set transparancy to 0.5, set a label and set density. Same for all other land cover classes
+_ = ax.hist(dubayah[logged_forest * valid1], bins=100, color='orange', alpha=0.5, label='Disturbed forest', density=True)
+_ = ax.hist(dubayah[degraded_and_regrowth * valid1], bins=100, color='grey', alpha=0.5, label='Regrowth forest', density=True)
+_ = ax.hist(dubayah[oilpalm * valid1], bins=100, color='yellow', alpha=0.5, label='Oil palm', density=True)
+ax.set_xlabel('Aboveground biomass density [Mg/ha]') #Set title x-axis.
+ax.set_ylabel('Frequency') #Set title y-axis.
+ax.legend() #Set legend.
+ax.title.set_text('Dubayah et al. (2022): 2019-2021') #Set (sub)plot title.
+plt.setp(ax, xlim=custom_xlim, ylim=custom_ylim) #Set limits to x and y axis. 
+
+ax = axes[0][1] #Graph row 1, column 2.
+_ = ax.hist(spawn[primary_forest * valid2], bins=100, color='green', alpha=0.5, label='Primary forest', density=True)
+_ = ax.hist(spawn[logged_forest * valid2], bins=100, color='orange', alpha=0.5, label='Disturbed forest', density=True)
+_ = ax.hist(spawn[degraded_and_regrowth * valid2], bins=100, color='grey', alpha=0.5, label='Regrowth forest', density=True)
+_ = ax.hist(spawn[oilpalm * valid2], bins=100, color='yellow', alpha=0.5, label='Oil palm', density=True)
+ax.set_xlabel('Aboveground biomass density [Mg/ha]')
+ax.set_ylabel('Frequency')
+ax.legend()
+ax.title.set_text('Spawn & Gibbs (2020): 2010')
+plt.setp(ax, xlim=custom_xlim, ylim=custom_ylim)
+
+ax = axes[0][2] #Graph row 1, column 3.
+_ = ax.hist(asner[primary_forest * valid3], bins=100, color='green', alpha=0.5, label='Primary forest', density=True)
+_ = ax.hist(asner[logged_forest * valid3], bins=100, color='orange', alpha=0.5, label='Disturbed forest', density=True)
+_ = ax.hist(asner[degraded_and_regrowth * valid3], bins=100, color='grey', alpha=0.5, label='Regrowth forest', density=True)
+_ = ax.hist(asner[oilpalm * valid3], bins=100, color='yellow', alpha=0.5, label='Oil palm', density=True)
+ax.set_xlabel('Aboveground biomass density [Mg/ha]')
+ax.set_ylabel('Frequency')
+ax.legend()
+ax.title.set_text('Asner et al. (2018, 2021): 2016')
+plt.setp(ax, xlim=custom_xlim, ylim=custom_ylim)
+
+ax = axes[1][0] #Graph row 2, column 1.
+_ = ax.hist(santoro_2010[primary_forest * valid4], bins=100, color='green', alpha=0.5, label='Primary forest', density=True)
+_ = ax.hist(santoro_2010[logged_forest * valid4], bins=100, color='orange', alpha=0.5, label='Disturbed forest', density=True)
+_ = ax.hist(santoro_2010[degraded_and_regrowth * valid4], bins=100, color='grey', alpha=0.5, label='Regrowth forest', density=True)
+_ = ax.hist(santoro_2010[oilpalm * valid4], bins=100, color='yellow', alpha=0.5, label='Oil palm', density=True)
+ax.set_xlabel('Aboveground biomass density [Mg/ha]')
+ax.set_ylabel('Frequency')
+ax.legend()
+ax.title.set_text('Santoro & Cartus (2021): 2010')
+plt.setp(ax, xlim=custom_xlim, ylim=custom_ylim)
+
+ax = axes[1][1] #Graph row 2, column 2.
+_ = ax.hist(santoro_2017[primary_forest * valid5], bins=100, color='green', alpha=0.5, label='Primary forest', density=True)
+_ = ax.hist(santoro_2017[logged_forest * valid5], bins=100, color='orange', alpha=0.5, label='Disturbed forest', density=True)
+_ = ax.hist(santoro_2017[degraded_and_regrowth * valid5], bins=100, color='grey', alpha=0.5, label='Regrowth forest', density=True)
+_ = ax.hist(santoro_2017[oilpalm * valid5], bins=100, color='yellow', alpha=0.5, label='Oil palm', density=True)
+ax.set_xlabel('Aboveground biomass density [Mg/ha]')
+ax.set_ylabel('Frequency')
+ax.legend()
+ax.title.set_text('Santoro & Cartus (2021): 2017')
+plt.setp(ax, xlim=custom_xlim, ylim=custom_ylim)
+
+ax = axes[1][2] #Graph row 2, column 3.
+_ = ax.hist(santoro_2018[primary_forest * valid6], bins=100, color='green', alpha=0.5, label='Primary forest', density=True)
+_ = ax.hist(santoro_2018[logged_forest * valid6], bins=100, color='orange', alpha=0.5, label='Disturbed forest', density=True)
+_ = ax.hist(santoro_2018[degraded_and_regrowth * valid6], bins=100, color='grey', alpha=0.5, label='Regrowth forest', density=True)
+_ = ax.hist(santoro_2018[oilpalm * valid6], bins=100, color='yellow', alpha=0.5, label='Oil palm', density=True)
+ax.set_xlabel('Aboveground biomass density [Mg/ha]')
+ax.set_ylabel('Frequency')
+ax.legend()
+ax.title.set_text('Santoro & Cartus (2021): 2018')
+plt.setp(ax, xlim=custom_xlim, ylim=custom_ylim)
+
+ax = axes[2][0] #Graph row 3, column 1.
+_ = ax.hist(baccini[primary_forest * valid7], bins=100, color='green', alpha=0.5, label='Primary forest', density=True)
+_ = ax.hist(baccini[logged_forest * valid7], bins=100, color='orange', alpha=0.5, label='Disturbed forest', density=True)
+_ = ax.hist(baccini[degraded_and_regrowth * valid7], bins=100, color='grey', alpha=0.5, label='Regrowth forest', density=True)
+_ = ax.hist(baccini[oilpalm * valid7], bins=100, color='yellow', alpha=0.5, label='Oil palm', density=True)
+ax.set_xlabel('Aboveground biomass density [Mg/ha]')
+ax.set_ylabel('Frequency')
+ax.legend()
+ax.title.set_text('Baccini et al. (2012): 2000-2010')
+plt.setp(ax, xlim=custom_xlim, ylim=custom_ylim)
+
+ax = axes[2][1] #Graph row 3, column 2.
+_ = ax.hist(satelligence_2021[primary_forest * valid8], bins=100, color='green', alpha=0.5, label='Primary forest', density=True)
+_ = ax.hist(satelligence_2021[logged_forest * valid8], bins=100, color='orange', alpha=0.5, label='Disturbed forest', density=True)
+_ = ax.hist(satelligence_2021[degraded_and_regrowth * valid8], bins=100, color='grey', alpha=0.5, label='Regrowth forest', density=True)
+_ = ax.hist(satelligence_2021[oilpalm * valid8], bins=100, color='yellow', alpha=0.5, label='Oil palm', density=True)
+ax.set_xlabel('Aboveground biomass density [Mg/ha]')
+ax.set_ylabel('Frequency')
+ax.legend()
+ax.title.set_text('Satelligence (2021): 2021')
+plt.setp(ax, xlim=custom_xlim, ylim=custom_ylim)
+
+fig.delaxes(axes[2][2]) #Delete empty graph in row 3, column 3.
+
+plt.show() #Plot graph.
