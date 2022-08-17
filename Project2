@@ -210,3 +210,30 @@ for year in YEARS:
     carbon_loss_per_lulc_per_year[year] = carbon_loss_per_lulc
 area_def_per_lulc_per_year
 
+#Create a loop in which the pickles are summed and stored as a dataframe. 
+#Furthermore, give class 101 the name Forest, 102 the name Oil Palm and 103 the name Other; and rearrange them in this order.
+#Store the new datasets a a pickle.
+YEARS = [2016,2017,2018, 2019, 2020, 2021]
+df_def = pd.DataFrame()
+df_car = pd.DataFrame()
+REGION = 'MYS'
+for year in YEARS:
+    test = pd.read_pickle(f'Data/outputs/{REGION}/{year}.pkl')
+    df_def[year] = pd.Series(test[0])
+    df_car[year] = pd.Series(test[1])
+
+df_def = df_def.transpose()   
+df_car = df_car.transpose()
+df_def.rename(columns={101:'Forest',102:'Oil Palm',103: 'Other'}, inplace=True)
+df_car.rename(columns={101:'Forest',102:'Oil Palm',103: 'Other'}, inplace=True)
+
+df_def = df_def[["Forest", "Oil Palm", "Other"]]
+df_car = df_car[["Forest", "Oil Palm", "Other"]]
+
+print(df_def)
+print(df_car)
+
+df_def.to_pickle(f'Data/outputs/corrected/{REGION}_def.pkl')
+df_car.to_pickle(f'Data/outputs/corrected/{REGION}_acd.pkl')
+
+
