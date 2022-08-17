@@ -237,3 +237,48 @@ df_def.to_pickle(f'Data/outputs/corrected/{REGION}_def.pkl')
 df_car.to_pickle(f'Data/outputs/corrected/{REGION}_acd.pkl')
 
 
+Open all pickles
+SAB_con_area = pd.read_pickle("Sab_con_area.pkl") #total area of concessions in Sabah - 1 value per LULC class
+SAB_con_acd_area = pd.read_pickle("Sab_con_acd_area.pkl") #total ACD in concessions Sabah - 1 value per LULC class
+SAB_area = pd.read_pickle("MYS_con_test.pkl") #total area in Sabah - 1 value per LULC
+SAB_acd_area = pd.read_pickle("MYS_con_acd_test.pkl") #total ACD in Sabah - 1 value per LULC
+
+SAB_def = pd.read_pickle("SAB_def.pkl")#total area of deforestation within Sabah
+SAB_acd_def = pd.read_pickle("SAB_acd.pkl") #total ACD that was lost by deforestation within Sabah
+SAB_con_def = pd.read_pickle("SAB_Concessions_def.pkl")#total area deforestation within concessions Sabah
+SAB_con_acd_def = pd.read_pickle("Sab_Concessions_acd.pkl") #total ACD that was lost by deforestation within concessions in Sabah
+
+MYS_con_acd_area = pd.read_pickle("MYS_con_acd_area.pkl")#total ACD in concessions Malaysia
+MYS_con_area = pd.read_pickle("MYS_con_area.pkl") #total area of concessions in Malaysia
+MYS_area = pd.read_pickle("MYS_con_testNEW.pkl") #total area in MYS - 1 value per LULC
+MYS_acd_area = pd.read_pickle("MYS_con_acd_testNEW.pkl") #total ACD in MYS - 1 value per LULC
+
+MYS_def = pd.read_pickle("MYS_def_WRONG.pkl")#total area of deforestation within Malaysia
+MYS_acd_def = pd.read_pickle("MYS_car_WRONG.pkl") #total ACD that was lost by deforestation within Malaysia
+MYS_con_def = pd.read_pickle("MYS_Concessions_def.pkl")#total area deforestation within concessions Malaysia
+MYS_con_acd_def = pd.read_pickle("MYS_Concessions_acd.pkl") #total ACD that was lost by deforestation within concessions in Malaysia
+
+#Create graphs of the deforestation and/or clearing per land cover class
+fig, axes = plt.subplots(ncols=2,nrows=2, figsize=(20,10))
+fig.suptitle('Deforestation and/or clearing per land cover class in Sabah, Malaysia and their concessions between 2016 and 2021')
+
+SAB_def.plot(ax=axes[0,0], kind="bar", stacked=True, color=['green', 'orange', 'grey'], rot=0, sharex=False, title='Sabah', xlabel='Year', ylabel='Deforestation and or clearing [Ha]')
+SAB_con_def.plot(ax=axes[0,1], kind="bar", stacked=True, color=['green', 'orange', 'grey'], rot=0, sharex=False, title='Concessions in Sabah', xlabel='Year', ylabel='Deforestation and/or clearing [Ha]')
+MYS_def.plot(ax=axes[1,0], kind="bar", stacked=True, color=['green', 'orange', 'grey'], rot=0, sharex=False, title='Malaysia', xlabel='Year', ylabel='Deforestation and/or clearing [Ha]')
+MYS_con_def.plot(ax=axes[1,1], kind="bar", stacked=True, color=['green', 'orange', 'grey'], rot=0, sharex=False, title='Concessions in Malaysia', xlabel='Year', ylabel='Deforestation and/or clearing [Ha]')
+
+#Calculate CO2 emissions based on ACD (based on IPCC report; see report for source)
+SAB_CO2_def = SAB_acd_def*(44/12)*(0.001)
+SAB_con_CO2_def = SAB_con_acd_def*(44/12)*(0.001)
+
+MYS_CO2_def = MYS_acd_def*(44/12)*(0.001)
+MYS_con_CO2_def = MYS_con_acd_def*(44/12)*(0.001)
+
+#Create graphs of CO2 emissions
+fig, axes = plt.subplots(ncols=2,nrows=2, figsize=(20,10))
+fig.suptitle('CO2 emissions due to deforestation and/or clearing per land cover class in Sabah, Malaysia and their concessions between 2016 and 2021')
+
+SAB_CO2_def.plot(ax=axes[0,0], kind="bar", stacked=True, color=['green', 'orange', 'grey'], rot=0, sharex=False, title='Sabah', xlabel='Year', ylabel='CO2 emissions [Gg CO2]')
+SAB_con_CO2_def.plot(ax=axes[0,1], kind="bar", stacked=True, color=['green', 'orange', 'grey'], rot=0, sharex=False, title='Concessions in Sabah', xlabel='Year', ylabel='CO2 emissions [Gg CO2]')
+MYS_CO2_def.plot(ax=axes[1,0], kind="bar", stacked=True, color=['green', 'orange', 'grey'], rot=0, sharex=False, title='Malaysia', xlabel='Year', ylabel='CO2 emissions [Gg CO2]')
+MYS_con_CO2_def.plot(ax=axes[1,1], kind="bar", stacked=True, color=['green', 'orange', 'grey'], rot=0, sharex=False, title='Malaysias concessions', xlabel='Year', ylabel='CO2 emissions [Gg CO2]')
