@@ -1,0 +1,212 @@
+#Import packages that are needed to run this code.
+import geopandas
+from shapely.geometry import Polygon
+import rasterio
+from rasterio.mask import mask
+import matplotlib.pylab as plt
+import numpy as np
+import fiona
+from geographiclib.geodesic import Geodesic
+import pandas as pd
+from pathlib import Path
+import pickle
+from helpers import open_raster_with_template, parallel_function
+
+# Open datasets for landcover, aboveground biomass and deforestation features. (The paths correspons with Jupyter Notebooks)
+PATH_TO_LANDCOVER = '/workspace/.../Landcover.tif' #... is path
+PATH_TO_AGBD_UNWARPED = '/workspace/.../AGBD_dataset.tif' #... is path
+DEFORESTATION_FEATURES = '/workspace/.../Deforestation_dataset.gpkg' #... is path
+
+# Set the AOI and clip deforestation dataset to AOI. 
+features_in_aoi = geopandas.read_file(DEFORESTATION_FEATURES)
+
+# Get area of area of polygon in m2 using geodesic calculations.
+# Args: polygons (list): list of sequences with polygon vertex coordinates.
+# Returns: float: area of patch in m2.
+def geodesic_area(polygons):
+    """Get area of polygon in m2 using geodesic calculations
+
+    Args:
+        polygons (list): list of sequences with polygon vertex coordinates
+
+    Returns:
+        float: area of patch in m2
+    """
+    geod = Geodesic.WGS84
+
+    geom = geod.Polygon()
+    for x in polygons.exterior.coords:
+        geom.AddPoint(x[1], x[0])
+    _, _, poly_area = geom.Compute()
+    tot_area = abs(poly_area)
+
+    if len(polygons.interiors) > 0:
+        tot_hole_area = 0.0
+        for interior in polygons.interiors:
+            geom = geod.Polygon()
+            for x in interior.coords:
+                geom.AddPoint(x[1], x[0])
+            _, _, poly_area = geom.Compute()
+            tot_hole_area += abs(poly_area)
+        tot_area -= tot_hole_area
+
+    return abs(tot_area)
+
+# Calculate the cell size of landcover dataset.
+def get_cell_size_m_from_raster(path_to_raster):
+    with rasterio.open(path_to_raster) as src:
+        bounds = src.bounds
+        extent = Polygon([
+            (bounds.left, bounds.bottom),
+            (bounds.left, bounds.top),
+            (bounds.right, bounds.top),
+            (bounds.right, bounds.bottom),
+            (bounds.left, bounds.bottom)
+        ])
+        
+        area = geodesic_area(extent)
+        n_pixels = src.shape[0] * src.shape[1]
+        area_per_pixel = area / n_pixels
+        cell_size = np.sqrt(area_per_pixel)
+        return cell_size
+
+cell_size = get_cell_size_m_from_raster(PATH_TO_LANDCOVER)
+print(cell_size) #Print cell size to make sure that it is what you expected and needed.
+
+#Total AGBM/Carbon emissions per year per LULC class linked to deforestation
+
+# Create a dictionary made up of a for loop in which you first calculate the deforestation per year (copied from earlier).
+# Furthermore, you open the file sabah landcover and you mask them (clip) them for the extent, and state 0 is NaN.
+# Then, you count the number of pixels per LULC type (groups).
+# At last, you create a for loop that calculates the count per pixel.
+
+#Define variables.
+YEARS = [2016, 2017, 2018, 2019, 2020, 2021]
+area_ha_per_cell = cell_size ** 2 / 10_000
+conversion_factor_biomass_to_carbon = 0.5
+
+#Define factors.
+agbd_per_year = {}
+area_def_per_lulc_per_year = {}
+def_per_lulc_per_year = {}
+deforestation_per_year = {}
+carbon_loss_per_lulc_per_year = {}
+
+#Merge land cover classes so that you only get forest, oil palm and other. 
+def merge_classes(raster):
+    raster_copy = raster.copy()
+    raster_copy[np.isin(raster_copy, [1,2,3,20,30])] = 101 #forest
+    raster_copy[np.isin(raster_copy, [50])] = 102 #oil palm
+    raster_copy[np.isin(raster_copy, [60, 70])] = 103 #other
+    return raster_copy
+
+#Define masked_lulc which is basically each polygon within the landcover (2015) dataset. Then, define 0 as nan and merge the classes together to obtain forest, oil palm and other.
+def process_single_feature(feature, number):
+    masked_lulc, _ = open_raster_with_template(
+        data_raster = PATH_TO_LANDCOVER, 
+        template_raster = PATH_TO_LANDCOVER,
+        clip_polygons = feature 
+    )
+
+    masked_lulc = masked_lulc.astype(np.float32)
+    masked_lulc[masked_lulc == 0] = np.NaN
+    masked_lulc = merge_classes(masked_lulc)
+
+    #Get all (new) land cover classes and count them.
+    landcover_inside_mask, count = np.unique(masked_lulc, return_counts=True)
+   
+    #Refer to the AGBD dataset and also clip each individual feature. Definie -9999 as nan.
+    masked_agbd, _ = open_raster_with_template(
+        data_raster = PATH_TO_AGBD_UNWARPED,  
+        template_raster = PATH_TO_LANDCOVER, 
+        clip_polygons = feature
+    )
+    masked_agbd = masked_agbd[0,:,:]
+    NODATA = -9999
+    masked_agbd[masked_agbd == NODATA] = np.NaN
+   
+    #Dictionary in which agbd sum is taken and changed into amount of tonnes (rather than tonnes/ha) => AGBD of whole area
+    agbd_per_year[year] = np.nansum(masked_agbd) * cell_size ** 2 / 10_000
+      
+    def_per_lulc_per_year = {}
+    carbon_loss_per_lulc = {}
+    i = 0
+    for landcover in [101, 102, 103]: # Loop over all newly defined land cover classes
+        if np.isin(landcover, landcover_inside_mask): # If landcover is found inside mask then add total area
+            mask_landcover_inside_deforestation = masked_lulc[0,:,:] == landcover
+            agbd_per_landcover = masked_agbd * mask_landcover_inside_deforestation #agbd * deforestation areas => agbd in the deforestatin areas
+            #Explanation of code above: new factor in which you state that the landcover class is equal to masked_lulc which is the present lulc of deforestation per block per year.
+            #It then provides true/false (if it matches or not). You multiply this with agbd (the same as raster calculator) and then you take the sum.
+
+            def_per_lulc_per_year[landcover] = (count[i] * area_ha_per_cell) #Calculate the tonnes deforestation
+            carbon_loss_per_lulc[landcover] = np.nansum(agbd_per_landcover) * area_ha_per_cell * conversion_factor_biomass_to_carbon #agbd in deforestation areas -> carbon => how much carbon is lost
+            if landcover==103:
+                # Store the polygon
+                print(def_per_lulc_per_year[landcover])
+                gdf = geopandas.GeoDataFrame(index=[0], data={'test':'test'}, geometry=feature, crs=4326)
+                gdf['area'] = gdf.to_crs(3857).area
+                if gdf['area'].values[0] > 100000:
+                    gdf.to_file(f"/workspace/.../{number}.gpkg", driver='GPKG') #... is path
+            
+            i += 1 # i = i + 1
+        else: # else there is zero deforestation inside this land cover class in this mask
+            def_per_lulc_per_year[landcover] = 0
+            carbon_loss_per_lulc[landcover] = 0
+    return def_per_lulc_per_year, carbon_loss_per_lulc
+
+# For each year get all deforestation polygons.
+# Mask the lulc layer and determine area per lulc class.
+
+import collections, functools, operator
+
+def split_results_from_mp_function(result_list):
+    # The result list is a list of tuples that for each tuple has 2 dictionaries. One for def_per_lulc and other carbon_loss_per_lulc. 
+    # We have to sum all of them
+    def_dicts = [x[0] for x in result_list]
+    carbon_dicts = [x[1] for x in result_list]
+    def_per_lulc_per_year = dict(functools.reduce(operator.add,
+         map(collections.Counter, def_dicts)))
+    
+    carbon_loss_per_lulc = dict(functools.reduce(operator.add,
+         map(collections.Counter, carbon_dicts)))
+    print(def_per_lulc_per_year)
+    return def_per_lulc_per_year, carbon_loss_per_lulc
+
+def save_as_pickle(items, filename):
+    with open(filename, 'wb') as dst:
+        pickle.dump(items, dst)
+def read_from_pickle(filename):
+    with open(filename, 'rb') as src:
+        return pickle.load(src)
+
+def split_dataframe(df, chunk_size = 10000): 
+    chunks = list()
+    num_chunks = len(df) // chunk_size + 1
+    for i in range(num_chunks):
+        chunks.append(df[i*chunk_size:(i+1)*chunk_size])
+    return chunks
+    
+for year in YEARS:
+    print(f"Now starting on year {year}")
+    defo_list_filename = f"Data/outputs/MYS/{year}.pkl"  # Name of the yearly outputs.
+    if Path(defo_list_filename).exists():
+        print("Year already processed, skipping")
+        def_per_lulc_per_year, carbon_loss_per_lulc = read_from_pickle(defo_list_filename)
+    else:
+        # Get all features for the specific year
+        features_per_year = features_in_aoi[features_in_aoi['year'] == year]
+        # Sum total area of deforestation per year
+        deforestation_per_year[year] = features_per_year['area'].sum() / 10_000
+        # Clip lulc layer based on selection of deforestation polygons (i.e. features_per_year)
+        
+        # Create tasks with 500 polygons -> More polygons = more memory usage.
+        # Feature_groups = split_dataframe(features_per_year, chunk_size=500).
+        arglist = [{'feature': [x], 'number':i} for i,x in enumerate(features_per_year['geometry'])]
+        result_lists = parallel_function(process_single_feature, arglist, ncpus=-1)
+        def_per_lulc_per_year, carbon_loss_per_lulc = split_results_from_mp_function(result_lists)
+        # Store results.
+        save_as_pickle((def_per_lulc_per_year,carbon_loss_per_lulc), defo_list_filename)
+    area_def_per_lulc_per_year[year] = def_per_lulc_per_year
+    carbon_loss_per_lulc_per_year[year] = carbon_loss_per_lulc
+area_def_per_lulc_per_year
+
